@@ -1,0 +1,60 @@
+name: Deploy Web to GitHub Pages
+
+on:
+  push:
+    branches:
+      - master
+      - web-version
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Web Export
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Version
+        run: git rev-parse HEAD > semantic.version
+      - name: Setup Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.7.2
+          use-dotnet: false
+          include-templates: true
+      - name: Import Project
+        run: godot --headless --editor --import --path . --quit
+      - name: Build Web Export
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/build/web"
+          godot --headless --path . --export-release HTML5 "$GITHUB_WORKSPACE/build/web/index.html"
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Deploy Pages Artifact
+        id: deployment
+        uses: actions/deploy-pages@v4

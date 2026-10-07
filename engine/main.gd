@@ -31,8 +31,8 @@ func _ready():
 	#endpoint_button.add_item("Stage")
 	_on_endpoint_item_selected(0)
 	
-	if OS.get_name() == "Web":
-		$multiplayer/Manual/host.disabled = true
+	if OS.has_feature("web"):
+		$multiplayer/Direct/host.disabled = true
 	
 	#For server commandline arguments. Searches for ones passed, then tries to set ones that exist.
 	#Puts arguments passed as "--example=value" in a dictionary.
@@ -48,7 +48,7 @@ func _ready():
 		default_map = map_path
 		default_entrance = arguments.get("entrance", "")
 		await get_tree().process_frame
-		host_server(false, 0, 0, 1)
+		start_singleplayer()
 		
 	
 	#this overrides the default port of 7777
@@ -112,11 +112,23 @@ func start_game(dedicated = false, empty_timeout = 0, map = null, entrance = nul
 		get_tree().get_root().add_child(level)
 		hide()
 
+func start_singleplayer():
+	# Local play needs server authority, but must not open a listening socket.
+	network.reset_to_offline_peer()
+	network.pid = MultiplayerPeer.TARGET_PEER_SERVER
+	network.dedicated = false
+	network.empty_timeout = 0
+	start_game()
+
 func host_server(dedicated = false, empty_timeout = 0, port = default_port, max_players = 16):
+	if OS.has_feature("web"):
+		open_error_message("Hosting multiplayer is not supported in the browser. Use a desktop host instead.")
+		return
+
 	var ws = WebSocketMultiplayerPeer.new()
 	var err = ws.create_server(port)
 	if err != OK:
-		print("Port in use")
+		open_error_message("Failed to host on port %s: %s" % [port, error_string(err)])
 		return
 	multiplayer.multiplayer_peer = ws
 	
@@ -258,7 +270,7 @@ func _on_quickstart_pressed():
 	hide_menus()
 	$top.show()
 	singleplayer_focus.grab_focus()
-	host_server(false, 0, 0, 1)
+	start_singleplayer()
 
 func open_error_message(message):
 	hide_menus()
