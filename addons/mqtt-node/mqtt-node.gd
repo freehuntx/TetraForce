@@ -518,7 +518,7 @@ func _send_packet(control_type: int, control_flag: int, payload := PackedByteArr
 func _send_raw(data: PackedByteArray, queue_if_busy := true) -> Error:
 	if socket == null or socket.get_ready_state() != WebSocketPeer.STATE_OPEN:
 		return ERR_CONNECTION_ERROR
-	if data.size() > socket.outbound_buffer_size:
+	if data.size() > socket.outbound_buffer_size - 14:
 		return ERR_INVALID_DATA
 	if _outgoing.is_empty() and _socket_can_send():
 		var err := socket.send(data)
@@ -538,11 +538,23 @@ func _socket_can_send() -> bool:
 
 func _flush_outgoing() -> void:
 	while not _outgoing.is_empty() and _socket_can_send():
-		var data := _outgoing[0]
-		if socket.send(data) != OK:
+		# Browser bufferedAmount stays nonzero until the JS event loop runs.
+		# Sending one MQTT packet per WebSocket frame therefore capped the queue
+		# at one packet per Godot frame, starving PUBACK/game ACKs and checkpoints.
+		# MQTT is a byte stream: batch complete packets without changing order.
+		var batch := PackedByteArray()
+		var count := 0
+		var budget := mini(65536, socket.outbound_buffer_size - 14)
+		for data in _outgoing:
+			if count > 0 and batch.size() + data.size() > budget:
+				break
+			batch.append_array(data)
+			count += 1
+		if socket.send(batch) != OK:
 			return
-		_outgoing.pop_front()
-		_outgoing_bytes -= data.size()
+		for index in range(count):
+			_outgoing.pop_front()
+		_outgoing_bytes -= batch.size()
 		last_packet_sent_time = Time.get_unix_time_from_system()
 
 func _gen_packet_id() -> int:

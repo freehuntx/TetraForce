@@ -1,5 +1,6 @@
 extends Node
 ## Real WebSocket transport with a tiny MQTT CONNECT/CONNACK fixture.
+const PacketStream = preload("res://addons/mqtt-node/packet-stream.gd")
 var server = TCPServer.new()
 var sockets: Array[WebSocketPeer] = []
 var port = 0
@@ -7,6 +8,8 @@ var reply_to_connect = true
 var failures = 0
 var checks = 0
 var publications: Array[int] = []
+var streams: Dictionary = {}
+var largest_publish_frame = 0
 
 class CongestedConnection extends RelayPeerConnection:
 	var accept_sends := false
@@ -51,12 +54,27 @@ func _process(_delta):
 		socket.max_queued_packets = 4096
 		socket.accept_stream(server.take_connection())
 		sockets.append(socket)
+		streams[socket.get_instance_id()] = PacketStream.new()
 	for socket in sockets:
 		socket.poll()
 		if socket.get_ready_state() != WebSocketPeer.STATE_OPEN:
 			continue
 		while socket.get_available_packet_count() > 0:
-			var packet = socket.get_packet()
+			var frame = socket.get_packet()
+			if !frame.is_empty() and frame[0] >> 4 == MqttNode.PacketType.PUBLISH:
+				largest_publish_frame = maxi(largest_publish_frame, frame.size())
+			streams[socket.get_instance_id()].append_data(frame)
+		var stream: PacketStream = streams[socket.get_instance_id()]
+		while stream.get_available_bytes() > 0:
+			var start = stream.get_position()
+			stream.get_u8()
+			var remaining = stream.get_dynamic_int()
+			if remaining < 0 or stream.get_available_bytes() < remaining:
+				stream.seek(start)
+				break
+			var end = stream.get_position() + remaining
+			var packet = stream.data_array.slice(start, end)
+			stream.seek(end)
 			if !packet.is_empty() and packet[0] == 0x10 and reply_to_connect:
 				socket.put_packet(PackedByteArray([0x20, 0x02, 0x00, 0x00]))
 			elif !packet.is_empty() and packet[0] >> 4 == MqttNode.PacketType.PUBLISH:
@@ -66,6 +84,9 @@ func _process(_delta):
 					if published.qos == 1:
 						var id: int = published.packet_id
 						socket.send(PackedByteArray([0x40, 0x02, id >> 8, id & 0xff]))
+		if stream.get_position() > 0:
+			stream.data_array = stream.data_array.slice(stream.get_position())
+			stream.seek(0)
 
 func _new_client(buffer_size := 1024 * 1024, queue_bytes := 1024 * 1024) -> MqttNode:
 	var client = MqttNode.new()
@@ -137,6 +158,7 @@ func _ack_backpressure():
 func _outbound_backpressure():
 	reply_to_connect = true
 	publications.clear()
+	largest_publish_frame = 0
 	var client = _new_client(16384, 32768)
 	await _wait_for_connect(client)
 	var deadline = Time.get_ticks_msec() + 3000
@@ -180,6 +202,7 @@ func _outbound_backpressure():
 	for i in range(publications.size()):
 		ordered = ordered and publications[i] == i
 	check(ordered, "Backpressure must preserve reliable publish order and payloads")
+	check(largest_publish_frame > 10000, "Queued MQTT publishes must share a WebSocket frame instead of being capped at one publish per game frame")
 	check(client._outgoing.is_empty() and client._outgoing_bytes == 0, "The connected-state queue must drain after polling resumes")
 	check(client.packet_ack_queue.is_empty(), "Successful sends must receive their MQTT acknowledgements")
 	relay.free()

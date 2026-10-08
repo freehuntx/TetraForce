@@ -10,6 +10,7 @@ signal migration_finished
 
 const DISCOVERY_SECONDS = 3.0
 const CONNECT_TIMEOUT = 25.0
+const HOST_SILENCE_MS = 5000
 var client: RelayClient
 var channel: RelayChannel
 var peer: FreelayMultiplayerPeer
@@ -26,8 +27,16 @@ var _closing = false
 var _channel_ready = false
 var _last_connection_error = ""
 var migration: FreelayMigration
+var _last_process_msec = 0
+var _resume_grace_until = 0
+var _host_admitted_msec = 0
+var _departure_hints: Dictionary = {}
 
 func open(lobby_name: String, join_mode: String, max_players = 16):
+	# Parent nodes otherwise run before RelayClient/MQTT. Drain received data
+	# before checking deadlines, especially on the first frame after a stall.
+	process_priority = 100
+	_last_process_msec = Time.get_ticks_msec()
 	migration = FreelayMigration.new(self)
 	lobby = lobby_name.strip_edges().to_lower()
 	mode = join_mode
@@ -63,18 +72,20 @@ func _opened():
 	channel.peer_left.connect(func(remote: RelayPeer):
 		_candidates.erase(remote.peer_id)
 		_hosts.erase(remote.peer_id)
-		if _started and peer != null:
-			if !peer.is_host() and (!migration.active or migration.preparing) and peer.identities.get(1) == remote.peer_id:
-				migration.host_lost("The host left the lobby.")
-			elif peer.is_host():
-				var departed = peer.identities.find_key(remote.peer_id)
-				if departed != null and peer.connections.has(departed):
-					peer.connections[departed].close()
+		if _started and peer != null and peer.identities.values().has(remote.peer_id):
+			# Presence is a hint, not proof that an authenticated RTC peer is
+			# dead. FIN/connection closure still takes effect immediately.
+			_departure_hints[remote.peer_id] = true
 	)
 
 func _process(delta):
 	if _closing or client == null:
 		return
+	var now = Time.get_ticks_msec()
+	if now - _last_process_msec >= HOST_SILENCE_MS:
+		# Browser callbacks may need another event-loop turn after a pause.
+		_resume_grace_until = now + HOST_SILENCE_MS
+	_last_process_msec = now
 	_age += delta
 	migration.tick(delta)
 	if _closing:
@@ -92,9 +103,11 @@ func _process(delta):
 		_announce_age = 0.0
 		_announce()
 	if peer != null:
+		_service_departure_hints(now)
 		if _started and !peer.is_host() and (!migration.active or migration.preparing):
 			var host = peer.identities.get(1, "")
-			if Time.get_ticks_msec() - _hosts.get(host, Time.get_ticks_msec()) > 5000:
+			var last_seen = maxi(_hosts.get(host, _host_admitted_msec), _connection_activity(1))
+			if now >= _resume_grace_until and now - last_seen > HOST_SILENCE_MS:
 				migration.host_lost("Host heartbeat timed out.")
 		return
 	_discovery_age += delta
@@ -138,6 +151,7 @@ func _lobby_message(remote: RelayPeer, data: Variant):
 	match data.get("role"):
 		"host":
 			_hosts[remote.peer_id] = Time.get_ticks_msec()
+			_departure_hints.erase(remote.peer_id)
 		"candidate":
 			_candidates[remote.peer_id] = Time.get_ticks_msec()
 			# Reply immediately so a new arrival discovers an existing host.
@@ -157,10 +171,12 @@ func _join_host(id: String):
 	var conn = client.connect_peer(id)
 	peer.configure_client(conn, global.version, lobby)
 	migration.attach(peer)
+	peer.rejected.connect(_rejected)
 	peer.admitted.connect(func():
 		_started = true
 		capacity = peer.max_players
 		_hosts[peer.identities.get(1)] = Time.get_ticks_msec()
+		_host_admitted_msec = Time.get_ticks_msec()
 		session_ready.emit(peer)
 	)
 	peer.connection_lost.connect(func(reason: String):
@@ -206,10 +222,12 @@ func _migration_connect(host: String, members: Dictionary, id: String, epoch: in
 		var conn = client.connect_peer(host)
 		peer.configure_client(conn, global.version, lobby)
 		migration.attach(peer)
+		peer.rejected.connect(_rejected)
 		var joining_peer = peer
 		peer.admitted.connect(func():
 			capacity = peer.max_players
 			_hosts[host] = Time.get_ticks_msec()
+			_host_admitted_msec = Time.get_ticks_msec()
 			migration_peer_ready.emit(peer)
 			migration.peer_ready(peer)
 		)
@@ -232,6 +250,28 @@ func _incoming_connection(conn: RelayPeerConnection):
 		conn.reject()
 	else:
 		peer.accept_connection(conn)
+
+func _connection_activity(id: int) -> int:
+	var conn: RelayPeerConnection = peer.connections.get(id)
+	return conn.last_received_msec if conn != null else 0
+
+func _rejected(reason: String):
+	# A kicked, already-admitted client acknowledges its removal before closing
+	# so a two-player host can commit the smaller roster and accept fresh joins.
+	if migration.members.has(client.profile.peer_id) and channel != null and channel.is_joined():
+		migration._send({"kind": "migration_member_leave"})
+	_fail(reason)
+
+func _service_departure_hints(now: int):
+	if !peer.is_host() or now < _resume_grace_until:
+		return
+	for remote in _departure_hints.keys():
+		var id = peer.identities.find_key(remote)
+		if id == null or !peer.connections.has(id):
+			_departure_hints.erase(remote)
+		elif now - _connection_activity(id) > HOST_SILENCE_MS:
+			_departure_hints.erase(remote)
+			peer.connections[id].close()
 
 func _broker_disconnected(reason: String):
 	if _closing:

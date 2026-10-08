@@ -24,14 +24,19 @@ Each addon retains its upstream `LICENSE.md`.
 - WebRTC is polled before a send. A failed send tears down that direct connection
   so subsequent gameplay updates use MQTT. Intentional local leaves keep the
   underlying SCTP connection alive for two seconds after closing the game session,
-  allowing the MQTT FIN to arrive before remote sends hit a closed socket.
+  allowing the MQTT FIN to arrive before remote sends hit a closed socket. Retained
+  channels are drained/discarded during that interval and explicitly closed at its
+  end; stale RTC callbacks are detached and receive loops stop after reentrant close.
+- Connections expose a monotonic receive timestamp for authenticated relay/DTLS
+  traffic. The game's host monitor runs after transport polling and grants locally
+  stalled windows a resume grace period before checking liveness.
 - Browser TCP candidates are removed from SDP/trickle ICE when the recipient is
   the native libjuice UDP-only implementation; UDP/STUN/TURN candidates remain.
 
 The game peer adapter also tracks SceneMultiplayer's peer-removal relay messages
 and discards queued/late relayed packets from those IDs. This prevents unordered
 RTC updates from referencing a peer's RPC cache after Godot has deleted it.
-The adapter's protocol-v2 packets include reliable sequence numbers, cumulative
+The adapter's packets include reliable sequence numbers, cumulative
 acknowledgements and retransmission across MQTT/RTC transitions. Unreliable updates
 carry their reliable-setup watermark and are dropped if they overtake that setup.
 Reliable control acknowledgements use `RelayPeerConnection.send_relay()` to remain
@@ -50,6 +55,10 @@ is unchanged.
 - Real CONNACK timeouts still emit the addon's error signal for retry/UI handling,
   but are not logged as script errors. Freelay shows the last broker failure if the
   overall lobby-connection timeout expires.
+- Congested reliable/control packets are batched in order into bounded WebSocket
+  messages, reserving space for WebSocket framing. Browser `bufferedAmount` must
+  drain between sends; batching prevents that guard from limiting MQTT throughput
+  to one packet per Godot frame and starving PUBACKs/game acknowledgements.
 
 ## Single-threaded web crypto libraries
 

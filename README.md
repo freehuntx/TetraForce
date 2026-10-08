@@ -144,6 +144,11 @@ players still own the simulation of the maps they occupy.
   handover, but cannot recover from an abrupt host loss with only one voter left.
   Migration times out after 25 seconds when agreement/restoration is impossible.
   Broker loss still ends the session, since signed coordination requires MQTT.
+- Host liveness is checked after transport polling, using both signed discovery
+  and authenticated gameplay traffic. A locally stalled/backgrounded window gets
+  a receive grace period when it resumes. Initial profile admission allows 25
+  seconds for cold browser map loading; intentional kicks show their actual reason
+  and do not start an election.
 - Checkpoints replicate shared state, profiles, map ownership, player positions
   and health, and objects with `NetworkObject` components. Map owners supply world
   state; each player supplies their own avatar. Add custom object state to
@@ -189,14 +194,27 @@ Run them with `python tests/run_freelay_regression.py --migration-only`; optiona
 select a scenario with `--migration-scenario=graceful`, `crash`, `repeated`,
 `candidate-loss`, `host-connection-loss`, or `no-quorum`.
 
-The game multiplayer protocol is now version 3. Refresh/re-export browser builds
+For two real WebAssembly instances, run
+`node tests/run_freelay_browser_regression.mjs`. This requires Node 22+, Chromium,
+Mosquitto with WebSocket support, and installed Godot web export templates. It
+exports an isolated test configuration and checks stalls during joining and active
+WebRTC play, committed checkpoints, rejection/rejoin, graceful host migration,
+and RTC channel/callback cleanup. `GODOT_BIN`, `MOSQUITTO_BIN`, `CHROMIUM_BIN`, and
+`PYTHON_BIN` can override the executables.
+
+The game multiplayer protocol is now version 4. Refresh/re-export browser builds
 alongside desktop updates; mismatched protocol builds show an update/reload message.
 Normal quitting stops audio before the network-flush wait, allowing music playback
 resources to be released before the engine exits.
 
 On leaving, gameplay stops immediately and the native WebRTC connection gets a
 short grace period for the encrypted MQTT leave notification to reach the other
-player. A failed data-channel send disables that channel and falls back to MQTT.
+player. Retained channels are drained/discarded during that grace period, then
+explicitly closed to detach browser message callbacks. Browser channel receive
+buffers are 1 MiB to accommodate short frame stalls. Queued MQTT packets are
+batched into bounded WebSocket messages so ACKs/checkpoints are not limited to
+one packet per game frame. A failed data-channel send disables that channel and
+falls back to MQTT.
 Late events from a cancelled lobby cannot interrupt the newly selected lobby.
 Relayed updates from departed players are dropped before they reach Godot's
 removed RPC/path caches, including movement packets delayed on an unordered channel.

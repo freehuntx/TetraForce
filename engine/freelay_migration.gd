@@ -340,7 +340,7 @@ func host_lost(reason: String):
 	if !session._started:
 		session._fail(reason)
 	elif members.size() <= 1 or snapshot.is_empty():
-		session._fail("The host left before a migration checkpoint was established.")
+		session._fail("The host left before a migration checkpoint was established.\n" + reason)
 	else:
 		_begin()
 

@@ -1,6 +1,8 @@
 extends Node
 
-const CONNECTION_TIMEOUT = 5
+# Cold web startup can spend several seconds loading/compiling the first map
+# before SceneMultiplayer flushes the player's profile RPC.
+const CONNECTION_TIMEOUT = 25
 
 var pid = 1
 
@@ -147,7 +149,10 @@ func get_player_tag(id):
 func kick_player(id, reason):
 	if is_multiplayer_authority():
 		print(get_player_tag(id), " kicked: ", reason)
-		multiplayer.multiplayer_peer.disconnect_peer(id)
+		if multiplayer.multiplayer_peer is FreelayMultiplayerPeer:
+			multiplayer.multiplayer_peer.kick_peer(id, reason)
+		else:
+			multiplayer.multiplayer_peer.disconnect_peer(id)
 	else:
 		print("Tried to kick as a client?")
 

@@ -23,6 +23,8 @@ var state: int = State.NEW
 var transport: String = TRANSPORT_RELAY
 var rtc_enabled := true
 var rtc_ice_servers: Array = [{"urls": ["stun:stun.l.google.com:19302"]}]
+## Monotonic receive time; only authenticated relay/DTLS traffic updates it.
+var last_received_msec := 0
 
 var _client # RelayClient
 var _session_id: PackedByteArray
@@ -277,6 +279,7 @@ func _handle_frame(topic: String, data: PackedByteArray) -> void:
 		return # bad tag
 	if not _replay_accept(counter):
 		return
+	last_received_msec = Time.get_ticks_msec()
 
 	# Responder becomes READY on the first valid frame (§7.2).
 	if state == State.WELCOME_SENT:
@@ -343,6 +346,8 @@ func _rtc_setup(ice_servers: Array) -> bool:
 
 
 func _on_rtc_session_created(type: String, sdp: String) -> void:
+	if _rtc == null or state != State.READY:
+		return
 	_rtc.set_local_description(type, sdp)
 	var frame_type := Freelay.FRAME_RTC_OFFER if type == "offer" else Freelay.FRAME_RTC_ANSWER
 	var json := JSON.stringify({"sdp": sdp}).to_utf8_buffer()
@@ -350,16 +355,23 @@ func _on_rtc_session_created(type: String, sdp: String) -> void:
 
 
 func _on_rtc_ice_created(mid: String, index: int, sdp: String) -> void:
+	if _rtc == null or state != State.READY:
+		return
 	var json := JSON.stringify({"candidate": sdp, "mid": mid, "index": index}).to_utf8_buffer()
 	_send_frame(Freelay.FRAME_RTC_ICE, json, RelayRateLimit.OutboundQueue.PRIO_CONTROL)
 
 
 func _on_rtc_channel_received(channel: Object) -> void:
+	if _rtc == null or state != State.READY:
+		channel.close()
+		return
 	match channel.get_label():
 		"fl-r":
 			_rtc_ch_r = channel
 		"fl-u":
 			_rtc_ch_u = channel
+		_:
+			channel.close()
 
 
 func _handle_rtc_offer(pt: PackedByteArray) -> void:
@@ -434,12 +446,18 @@ static func _digest_less(a: PackedByteArray, b: PackedByteArray) -> bool:
 func _rtc_poll() -> void:
 	if _rtc == null:
 		return
-	_rtc.poll()
+	var rtc = _rtc
+	rtc.poll()
+	if _rtc != rtc or state != State.READY:
+		return
 	for ch in [_rtc_ch_r, _rtc_ch_u]:
 		if ch == null or ch.get_ready_state() != 1:
 			continue
-		while ch.get_available_packet_count() > 0:
+		while _rtc == rtc and state == State.READY and ch.get_ready_state() == 1 and ch.get_available_packet_count() > 0:
+			last_received_msec = Time.get_ticks_msec()
 			message.emit(bytes_to_var(ch.get_packet()))
+	if _rtc != rtc or state != State.READY:
+		return # A message callback can close or replace this connection.
 	var channels_open: bool = _rtc != null and _rtc.get_connection_state() == 2 and _rtc_ch_r != null and _rtc_ch_r.get_ready_state() == 1 and _rtc_ch_u != null and _rtc_ch_u.get_ready_state() == 1
 	if channels_open and transport != TRANSPORT_RTC:
 		transport = TRANSPORT_RTC
@@ -464,15 +482,39 @@ func _rtc_teardown(graceful := false) -> void:
 		transport_changed.emit(transport)
 	if rtc == null:
 		return
+	if rtc.session_description_created.is_connected(_on_rtc_session_created):
+		rtc.session_description_created.disconnect(_on_rtc_session_created)
+	if rtc.ice_candidate_created.is_connected(_on_rtc_ice_created):
+		rtc.ice_candidate_created.disconnect(_on_rtc_ice_created)
+	if rtc.data_channel_received.is_connected(_on_rtc_channel_received):
+		rtc.data_channel_received.disconnect(_on_rtc_channel_received)
 	if graceful and is_instance_valid(_client) and _client.is_inside_tree():
 		# FIN travels via MQTT. Keep DTLS/SCTP alive long enough for the remote
 		# game to process that leave before its next send sees a broken pipe.
-		_client.get_tree().create_timer(RTC_LEAVE_GRACE_SECONDS).timeout.connect(func():
-			rtc.close()
-			channels.clear()
+		var tree = _client.get_tree()
+		# WebRTCDataChannelJS receives packets even after our logical session
+		# closes. Drain/discard them during the FIN grace period instead of
+		# retaining unpolled channels that overflow the browser's ring buffer.
+		var drain = func():
+			for channel in channels:
+				if channel != null and channel.get_ready_state() == 1:
+					while channel.get_available_packet_count() > 0:
+						channel.get_packet()
+		tree.process_frame.connect(drain)
+		tree.create_timer(RTC_LEAVE_GRACE_SECONDS).timeout.connect(func():
+			tree.process_frame.disconnect(drain)
+			_close_rtc_resources(rtc, channels)
 		)
 	else:
-		rtc.close()
+		_close_rtc_resources(rtc, channels)
+
+func _close_rtc_resources(rtc: Object, channels: Array):
+	# Closing the peer connection alone does not detach JS onmessage handlers.
+	for channel in channels:
+		if channel != null:
+			channel.close()
+	rtc.close()
+	channels.clear()
 
 
 # ---------------------------------------------------------------------------

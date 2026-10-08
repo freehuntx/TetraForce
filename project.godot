@@ -193,6 +193,10 @@ QUICK_SAVE={
 2d_physics/layer_8="holes"
 2d_physics/layer_11="zone"
 
+[network]
+
+limits/webrtc/max_channel_in_buffer_kb=1024
+
 [rendering]
 
 textures/canvas_textures/default_texture_filter=0

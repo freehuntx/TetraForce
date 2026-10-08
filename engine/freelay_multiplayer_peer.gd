@@ -5,10 +5,11 @@ extends MultiplayerPeerExtension
 
 signal admitted
 signal connection_lost(reason: String)
+signal rejected(reason: String)
 signal control_message(id: int, data: Dictionary)
 
 const MAX_PACKET_SIZE = 60000
-const PROTOCOL_VERSION = 3
+const PROTOCOL_VERSION = 4
 const RELIABLE_RETRY_MS = 500
 const RELIABLE_WINDOW = 4096
 # SceneMultiplayer's relay wire header (scene_multiplayer.h).
@@ -156,8 +157,9 @@ func _client_message(data: Variant):
 		# Only the client offers, after the game/version handshake has succeeded.
 		if connections[1].rtc_enabled:
 			connections[1].upgrade_to_rtc(connections[1].rtc_ice_servers)
-	elif data.get("kind") == "reject":
-		_host_closed(str(data.get("reason", "Connection rejected.")))
+	elif data.get("kind") in ["reject", "kick"]:
+		# An intentional rejection is not an election trigger.
+		rejected.emit(str(data.get("reason", "Connection rejected.")))
 	else:
 		_receive_transport_data(1, data)
 
@@ -382,6 +384,11 @@ func _is_refusing_new_connections() -> bool:
 func _disconnect_peer(peer: int, _force: bool) -> void:
 	if connections.has(peer):
 		connections[peer].close()
+
+func kick_peer(id: int, reason: String):
+	if connections.has(id):
+		connections[id].send_relay({"kind": "kick", "reason": reason})
+		connections[id].close()
 
 func _close() -> void:
 	_status = MultiplayerPeer.CONNECTION_DISCONNECTED
