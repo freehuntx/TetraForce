@@ -8,7 +8,7 @@ func _ready():
 	var main = load("res://engine/main.tscn").instantiate()
 	add_child(main)
 	await get_tree().create_timer(0.6).timeout
-	check(!main.get_node("multiplayer/Direct/host").disabled, "Freelay hosting must be available on desktop and web")
+	check(main.get_node("multiplayer/Direct/host").disabled == OS.has_feature("web"), "Direct hosting must only be available on desktop")
 
 	main.get_node("top/VBoxContainer/singleplayer").pressed.emit()
 	await get_tree().create_timer(1.2).timeout

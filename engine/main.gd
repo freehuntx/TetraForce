@@ -1,6 +1,8 @@
 class_name Main
 extends Control
 
+const DIRECT_PORT = 7777
+
 var default_map = "res://maps/shrine.tmx"
 var default_entrance = "player_start"
 var relay_session: Node
@@ -20,6 +22,7 @@ func _ready():
 	global.load_options()
 	hide_menus()
 	$top.show()
+	configure_direct_menu(OS.has_feature("web"))
 	
 	multiplayer.connected_to_server.connect(_client_connect_ok)
 	multiplayer.connection_failed.connect(_client_connect_fail)
@@ -46,7 +49,7 @@ func _ready():
 	
 	if "lobby" in arguments:
 		default_lobby = arguments["lobby"]
-		address_line.text = default_lobby
+		lobby_line.text = default_lobby
 	if "broker" in arguments:
 		ProjectSettings.set_setting("freelay/broker_urls", PackedStringArray([arguments["broker"]]))
 	
@@ -128,6 +131,40 @@ func join_lobby(lobby_name):
 	_hosting_empty_timeout = 0
 	connect_lobby(lobby_name, "auto")
 
+func configure_direct_menu(web: bool):
+	$multiplayer/Direct/host.visible = !web
+	$multiplayer/Direct/host.disabled = web
+
+func connect_direct(hosting: bool, address = "", port = DIRECT_PORT):
+	if hosting and OS.has_feature("web"):
+		open_error_message("Hosting is desktop-only.")
+		return
+	address = address.strip_edges()
+	if !hosting and !address.is_valid_ip_address():
+		open_error_message("Enter a valid host IP.")
+		return
+	if is_instance_valid(relay_session):
+		await relay_session.prepare_leave()
+	loading_screen.stop_loading()
+	network.complete(false)
+	close_relay_session()
+	network.reset_to_offline_peer()
+	_hosting_dedicated = false
+	_hosting_empty_timeout = 0
+	# Godot's WebSocket multiplayer transport uses TCP and relays client RPCs.
+	var peer = WebSocketMultiplayerPeer.new()
+	var endpoint = "[%s]" % address if ":" in address else address
+	var error = peer.create_server(port) if hosting else peer.create_client("ws://%s:%d" % [endpoint, port])
+	if error != OK:
+		peer.close()
+		open_error_message("Could not host on port %d." % port if hosting else "Connection failed.")
+		return
+	multiplayer.multiplayer_peer = peer
+	if hosting:
+		start_game()
+	else:
+		loading_screen.with_load("Connecting to %s" % address, 25)
+
 func connect_lobby(lobby_name, mode = "auto", max_players = 16):
 	if is_instance_valid(relay_session):
 		await relay_session.prepare_leave()
@@ -169,6 +206,15 @@ func close_relay_session():
 		relay_session.close()
 	relay_session = null
 
+func _physics_process(_delta):
+	var peer = multiplayer.multiplayer_peer
+	if peer is WebSocketMultiplayerPeer and !multiplayer.is_server() and peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED:
+		# WebSocket enters CLOSING one poll before server_disconnected. Stop
+		# gameplay now so physics RPCs cannot send into that closing socket.
+		if peer.get_peer(1).get_ready_state() != WebSocketPeer.STATE_OPEN:
+			peer.close()
+			_client_disconnect()
+
 func _client_connect_ok():
 	if network.migrating:
 		return
@@ -181,6 +227,7 @@ func _client_connect_fail():
 	print("Failed to connect!")
 	loading_screen.stop_loading()
 	end_game()
+	open_error_message("Connection failed.")
 
 func _client_disconnect(code = OK, reason = "Server disconnected"):
 	if network.migrating:
@@ -252,11 +299,10 @@ func _on_connect_pressed():
 	join_lobby(lobby_line.text)
 
 func _on_host_pressed():
-	host_server(false, 0, address_line.text)
+	connect_direct(true)
 
 func _on_join_pressed():
-	_hosting_dedicated = false
-	connect_lobby(address_line.text, "join")
+	connect_direct(false, address_line.text)
 
 func _on_quit_pressed():
 	quit_program()
@@ -296,6 +342,7 @@ func _on_options_pressed():
 func _on_back_pressed():
 	if !is_instance_valid(network.current_map):
 		close_relay_session()
+		network.reset_to_offline_peer()
 		loading_screen.stop_loading()
 	if $options.is_visible_in_tree():
 		global.save_options()

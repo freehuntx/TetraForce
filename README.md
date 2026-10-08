@@ -65,13 +65,15 @@ browser builds use Godot's built-in WebRTC implementation.
 - **Public:** select a shared public lobby. The first player hosts the game.
 - **Automatic:** enter the same lobby name as your friends and press Connect.
   The game joins an existing host or selects a host after a short discovery period.
-- **Direct:** enter a lobby name, then use Host to create it or Join to join it.
+- **Direct:** host on desktop, or enter the host's IP and press Join.
+  Uses TCP port 7777 (WebSocket). Browsers can join; the Host button is hidden.
+  Internet hosts must forward TCP port 7777; LAN players use the host's local IP.
 
 Lobby names are case-insensitive and must contain 1–64 characters after trimming
 whitespace. Players must use the same multiplayer protocol, application ID, and
 broker. Build-version labels (release tags, commit hashes, or "custom build") do
 not restrict joining.
-Desktop and browser players can host or join each other without port forwarding.
+Public and Automatic work between desktop and browser without port forwarding.
 The default capacity is 16 players including the host.
 
 ### Broker configuration
@@ -166,6 +168,7 @@ The upstream version and local dependency patches are recorded in
 ```sh
 godot --headless --editor --import --path . --quit
 godot --headless --path . res://tests/quickstart_regression.tscn
+python tests/run_direct_regression.py
 python tests/run_collision_regression.py
 python tests/run_freelay_regression.py
 ```

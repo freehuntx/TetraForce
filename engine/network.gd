@@ -73,7 +73,7 @@ func clean_session_data():
 	_received_roster_revision = -1
 
 func reset_to_offline_peer():
-	if multiplayer.multiplayer_peer is FreelayMultiplayerPeer:
+	if multiplayer.has_multiplayer_peer() and !(multiplayer.multiplayer_peer is OfflineMultiplayerPeer):
 		multiplayer.multiplayer_peer.close()
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 
@@ -360,11 +360,21 @@ func peer_call(object, function, arguments = []):
 	for peer in map_peers:
 		peer_call_id(peer, object, function, arguments)
 
+func can_send_to(id):
+	if !(id in multiplayer.get_peers()):
+		return false
+	var peer = multiplayer.multiplayer_peer
+	if peer is WebSocketMultiplayerPeer:
+		# A send failure can close the socket before the next multiplayer poll.
+		var socket = peer.get_peer(id if multiplayer.is_server() else 1)
+		return socket.get_ready_state() == WebSocketPeer.STATE_OPEN
+	return true
+
 func peer_call_unreliable(object, function, arguments = []):
 	if migrating:
 		return
 	for peer in map_peers:
-		if peer in multiplayer.get_peers():
+		if can_send_to(peer):
 			rpc_id(peer, "_pc_unreliable", object.get_path(), function, arguments)
 
 func peer_call_id(id, object, function, arguments = []):
@@ -375,12 +385,12 @@ func peer_call_id(id, object, function, arguments = []):
 	if id == pid:
 		_call_network_method(object.get_path(), function, arguments)
 		return
-	if !(id in multiplayer.get_peers()):
+	if !can_send_to(id):
 		return
 	rpc_id(id, "_pc", object.get_path(), function, arguments)
 
 func peer_create_id(id, object_path, object_name, object_parent):
-	if migrating or !(id in multiplayer.get_peers()):
+	if migrating or !can_send_to(id):
 		return
 	rpc_id(id, "_create_object", object_path, object_name, object_parent)
 

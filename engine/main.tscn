@@ -215,7 +215,7 @@ __meta__ = {
 [node name="Label" type="Label" parent="multiplayer/Automatic"]
 offset_right = 210.0
 offset_bottom = 66.0
-text = "Use the same lobby name as your friends."
+text = "Enter any lobby name below to create a new server. Enter the same lobby name as someone else to join their server."
 horizontal_alignment = 1
 vertical_alignment = 1
 autowrap_mode = 3
@@ -236,17 +236,21 @@ size_flags_vertical = 2
 
 [node name="Label" type="Label" parent="multiplayer/Direct"]
 offset_right = 199.0
-offset_bottom = 146.0
-text = "Host or join a lobby.
-Share its name with friends.
-
-
-Lobby name:"
+offset_bottom = 54.0
+text = "Host or Join a server on this machine or online."
 horizontal_alignment = 1
+vertical_alignment = 1
 autowrap_mode = 3
 __meta__ = {
 "_edit_use_anchors_": false
 }
+
+[node name="IPLabel" type="Label" parent="multiplayer/Direct"]
+offset_left = 8.0
+offset_top = 94.0
+offset_right = 136.0
+offset_bottom = 110.0
+text = "Host IP:"
 
 [node name="address" type="LineEdit" parent="multiplayer/Direct"]
 offset_left = 8.0
@@ -255,7 +259,8 @@ offset_right = 136.0
 offset_bottom = 146.407
 size_flags_horizontal = 2
 size_flags_vertical = 2
-text = "tetraforce"
+text = "127.0.0.1"
+placeholder_text = "Host IP"
 __meta__ = {
 "_edit_use_anchors_": false
 }
