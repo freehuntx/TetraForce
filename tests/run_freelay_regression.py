@@ -154,7 +154,8 @@ def main():
                 return int(run_appearance_regression(root, port, processes))
             if "--migration-only" in sys.argv:
                 return int(run_migration_regression(root, port, processes))
-            # Exercise relay-only play, native WebRTC, and automatic host selection.
+            # Exercise relay-only play, native WebRTC, and automatic host selection
+            # across release-tag, commit-hash, and local-build version labels.
             for roles, rtc in (
                 (("host", "join", "join"), "false"),
                 (("host", "join", "join"), "true"),
@@ -170,7 +171,8 @@ def main():
                         [os.environ.get("GODOT_BIN", "godot"), "--headless",
                           "--path", str(root), "res://tests/freelay_regression.tscn",
                           "--", f"--role={role}", f"--lobby={lobby}", f"--rtc={rtc}",
-                         f"--broker=ws://127.0.0.1:{port}/mqtt"],
+                          f"--build-version={('v1.0.0', '0123456789abcdef', 'custom build')[index]}",
+                          f"--broker=ws://127.0.0.1:{port}/mqtt"],
                         cwd=root, stdout=log,
                         stderr=subprocess.STDOUT, text=True,
                     )

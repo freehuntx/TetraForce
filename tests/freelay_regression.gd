@@ -29,6 +29,8 @@ func _ready():
 		if parts.size() == 2:
 			args[parts[0]] = parts[1]
 	role = args.get("role", "auto")
+	if args.has("build-version"):
+		global.version = args["build-version"]
 	_require_rtc = args.get("rtc", "true") == "true"
 	ProjectSettings.set_setting("freelay/webrtc_enabled", _require_rtc)
 	# LAN candidates exercise direct connections without depending on a public STUN service.

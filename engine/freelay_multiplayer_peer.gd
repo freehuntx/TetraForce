@@ -109,8 +109,8 @@ func _incoming_message(data: Variant, remote_id: String):
 			conn.send({"kind": "reject", "reason": "Different multiplayer build. Update/reload both desktop and browser versions."})
 			conn.close()
 			return
-		if data.get("version") != game_version or data.get("lobby") != lobby_name:
-			conn.send({"kind": "reject", "reason": "Lobby or game version does not match."})
+		if data.get("lobby") != lobby_name:
+			conn.send({"kind": "reject", "reason": "Lobby does not match."})
 			conn.close()
 			return
 		if data.get("session", "") != "" and (data.session != session_id or data.get("epoch") != host_epoch):
@@ -154,7 +154,7 @@ func _client_message(data: Variant):
 		_status = MultiplayerPeer.CONNECTION_CONNECTED
 		_events.append([true, 1])
 		admitted.emit()
-		# Only the client offers, after the game/version handshake has succeeded.
+		# Only the client offers, after the lobby/protocol handshake has succeeded.
 		if connections[1].rtc_enabled:
 			connections[1].upgrade_to_rtc(connections[1].rtc_ice_servers)
 	elif data.get("kind") in ["reject", "kick"]:

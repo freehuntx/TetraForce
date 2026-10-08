@@ -68,7 +68,9 @@ browser builds use Godot's built-in WebRTC implementation.
 - **Direct:** enter a lobby name, then use Host to create it or Join to join it.
 
 Lobby names are case-insensitive and must contain 1–64 characters after trimming
-whitespace. Players must use the same game version, application ID, and broker.
+whitespace. Players must use the same multiplayer protocol, application ID, and
+broker. Build-version labels (release tags, commit hashes, or "custom build") do
+not restrict joining.
 Desktop and browser players can host or join each other without port forwarding.
 The default capacity is 16 players including the host.
 
@@ -169,9 +171,10 @@ python tests/run_freelay_regression.py
 ```
 
 The Freelay runner requires Mosquitto with WebSocket support. It starts a local
-broker and three real game instances, checks explicit hosting and simultaneous
-automatic host selection, player movement, client-to-client RPCs, dynamic object
-creation, late-join state, departures, WebRTC upgrades and MQTT fallback, and
+broker and three real game instances with different build-version labels, checks
+explicit hosting and simultaneous automatic host selection, player movement,
+client-to-client RPCs, dynamic object creation, late-join state, departures,
+WebRTC upgrades and MQTT fallback, and
 broker-loss recovery. The native WebRTC tests use local ICE candidates so they do
 not depend on a public STUN service. Set `GODOT_BIN`
 or `MOSQUITTO_BIN` to override the executables.

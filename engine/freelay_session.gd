@@ -146,7 +146,9 @@ func _lobby_message(remote: RelayPeer, data: Variant):
 	if str(data.get("kind", "")).begins_with("migration_"):
 		migration.message(remote, data)
 		return
-	if data.get("kind") != "discovery" or data.get("version") != global.version:
+	# Build labels are informational; release tags, commit hashes and local
+	# builds share a lobby. Gameplay checks wire-protocol compatibility on join.
+	if data.get("kind") != "discovery":
 		return
 	match data.get("role"):
 		"host":
