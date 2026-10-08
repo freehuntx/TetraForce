@@ -13,6 +13,9 @@ config_version=5
 config/name="TetraForce"
 run/main_scene="res://engine/main.tscn"
 config/features=PackedStringArray("4.7")
+boot_splash/bg_color=Color(0.0705882, 0.0196078, 0.0196078, 1)
+boot_splash/use_filter=false
+boot_splash/image="res://ui/loading_screen/boot_splash.png"
 config/icon="res://icon_256.png"
 
 [autoload]

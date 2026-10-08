@@ -63,7 +63,7 @@ func _ready():
 func get_empty_server_timeout(arguments):
 	var empty_timeout
 	
-	var empty_timeout_arg = arguments.get("empty-server-timeout")   # don't set default here
+	var empty_timeout_arg = arguments.get("empty-server-timeout") # don't set default here
 	if empty_timeout_arg != null:
 		if empty_timeout_arg.is_valid_int():
 			var empty_timeout_arg_int = int(empty_timeout_arg)
@@ -75,7 +75,7 @@ func get_empty_server_timeout(arguments):
 			print("invalid value for empty-server-timeout - must be an integer >= 0")
 	
 	if empty_timeout == null:
-		empty_timeout = 0   # set default here
+		empty_timeout = 0 # set default here
 		print("defaulting empty-server-timeout to %d" % empty_timeout)
 	
 	if empty_timeout > 0:
@@ -137,7 +137,7 @@ func connect_lobby(lobby_name, mode = "auto", max_players = 16):
 	network.reset_to_offline_peer()
 	network.dedicated = false
 	network.empty_timeout = 0
-	loading_screen.with_load("Connecting to '%s' via Freelay" % lobby_name, 25)
+	loading_screen.with_load("Connecting to '%s'" % lobby_name, 25)
 	relay_session = preload("res://engine/freelay_session.gd").new()
 	add_child(relay_session)
 	relay_session.session_ready.connect(_relay_ready.bind(relay_session))
@@ -222,7 +222,7 @@ func quit_program():
 
 func _migration_started():
 	network.begin_migration()
-	loading_screen.with_load("Host left — transferring the session", 25)
+	loading_screen.with_load("Host left - transferring the session", 25)
 
 func _migration_peer_ready(peer: FreelayMultiplayerPeer):
 	# Replacing the peer clears SceneMultiplayer's old path/relay caches.
@@ -311,8 +311,6 @@ func _on_save_pressed():
 
 func _on_mouse_entered():
 	sfx.play("item_select")
-
-
 
 
 func _on_credits_pressed():

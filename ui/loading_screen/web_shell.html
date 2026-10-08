@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
+		<title>$GODOT_PROJECT_NAME</title>
+		<style>
+html, body, #canvas { margin: 0; padding: 0; border: 0; }
+body { background: #120505; color: #eee0c8; overflow: hidden; touch-action: none; }
+#canvas { display: block; }
+#canvas:focus { outline: none; }
+#status {
+	position: fixed;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: #120505;
+	font-family: monospace;
+}
+#loader { position: relative; width: min(94vw, 768px, 160vh); aspect-ratio: 16 / 9; }
+#status-splash { display: block; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+#status-progress {
+	position: absolute;
+	top: 73%;
+	left: 25%;
+	width: 50%;
+	height: 4%;
+	box-sizing: border-box;
+	appearance: none;
+	border: 2px solid #a96b2d;
+	background: #28100a;
+	color: #dd9d37;
+}
+#status-progress::-webkit-progress-bar { background: #28100a; }
+#status-progress::-webkit-progress-value { background: #dd9d37; }
+#status-progress::-moz-progress-bar { background: #dd9d37; }
+#status-progress:indeterminate { background: linear-gradient(90deg, #28100a, #a96b2d, #28100a); }
+#status-label {
+	position: absolute;
+	top: 81%;
+	left: 0;
+	width: 100%;
+	margin: 0;
+	text-align: center;
+	font-size: clamp(10px, 2vw, 16px);
+	letter-spacing: 0.2em;
+	text-transform: uppercase;
+}
+#status-notice {
+	display: none;
+	position: absolute;
+	inset: 60% 8% auto;
+	border: 1px solid #a96b2d;
+	padding: 12px;
+	background: #28100a;
+	font-size: clamp(10px, 2vw, 16px);
+	line-height: 1.4;
+	text-align: center;
+	white-space: pre-wrap;
+}
+		</style>
+		$GODOT_HEAD_INCLUDE
+	</head>
+	<body>
+		<canvas id="canvas">Your browser does not support the canvas tag.</canvas>
+		<noscript>JavaScript is required to play TetraForce.</noscript>
+		<div id="status" role="status" aria-live="polite">
+			<div id="loader">
+				<img id="status-splash" src="$GODOT_SPLASH" alt="TetraForce">
+				<progress id="status-progress" aria-label="Loading TetraForce"></progress>
+				<p id="status-label">Loading<span aria-hidden="true">…</span></p>
+				<div id="status-notice"></div>
+			</div>
+		</div>
+		<script src="$GODOT_URL"></script>
+		<script>
+const GODOT_CONFIG = $GODOT_CONFIG;
+const GODOT_THREADS_ENABLED = $GODOT_THREADS_ENABLED;
+const engine = new Engine(GODOT_CONFIG);
+
+(function () {
+	const statusOverlay = document.getElementById('status');
+	const statusProgress = document.getElementById('status-progress');
+	const statusLabel = document.getElementById('status-label');
+	const statusNotice = document.getElementById('status-notice');
+	let initializing = true;
+
+	function setStatusMode(mode) {
+		if (!initializing) return;
+		if (mode === 'hidden') {
+			statusOverlay.remove();
+			initializing = false;
+			return;
+		}
+		statusProgress.style.display = mode === 'progress' ? 'block' : 'none';
+		statusLabel.style.display = mode === 'progress' ? 'block' : 'none';
+		statusNotice.style.display = mode === 'notice' ? 'block' : 'none';
+	}
+
+	function displayFailureNotice(error) {
+		console.error(error);
+		statusNotice.textContent = error instanceof Error ? error.message : String(error || 'Unable to start TetraForce. Please reload to try again.');
+		setStatusMode('notice');
+		initializing = false;
+	}
+
+	const missing = Engine.getMissingFeatures({ threads: GODOT_THREADS_ENABLED });
+	if (missing.length !== 0) {
+		if (GODOT_CONFIG.serviceWorker && GODOT_CONFIG.ensureCrossOriginIsolationHeaders && 'serviceWorker' in navigator) {
+			// Keep the standard export's recovery for cross-origin isolation.
+			Promise.race([
+				navigator.serviceWorker.getRegistration().then((registration) => {
+					if (registration != null) throw new Error('Service worker already exists.');
+					return engine.installServiceWorker();
+				}),
+				new Promise((resolve) => setTimeout(resolve, 2000)),
+			]).then(() => window.location.reload()).catch(displayFailureNotice);
+		} else {
+			displayFailureNotice('Your browser cannot run TetraForce. Missing features:\n' + missing.join('\n'));
+		}
+		return;
+	}
+
+	setStatusMode('progress');
+	engine.startGame({
+		onProgress(current, total) {
+			if (current > 0 && total > 0) {
+				statusProgress.max = total;
+				statusProgress.value = current;
+			} else {
+				statusProgress.removeAttribute('value');
+			}
+		},
+	}).then(() => setStatusMode('hidden'), displayFailureNotice);
+}());
+		</script>
+	</body>
+</html>

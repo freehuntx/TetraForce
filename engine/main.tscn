@@ -215,8 +215,9 @@ __meta__ = {
 [node name="Label" type="Label" parent="multiplayer/Automatic"]
 offset_right = 210.0
 offset_bottom = 66.0
-text = "Enter the same lobby name as your friends. Freelay joins an existing game or selects a player to host. No port forwarding needed."
+text = "Use the same lobby name as your friends."
 horizontal_alignment = 1
+vertical_alignment = 1
 autowrap_mode = 3
 __meta__ = {
 "_edit_use_anchors_": false
@@ -236,9 +237,8 @@ size_flags_vertical = 2
 [node name="Label" type="Label" parent="multiplayer/Direct"]
 offset_right = 199.0
 offset_bottom = 146.0
-text = "Host or join a Freelay lobby.
-Share the lobby name with friends.
-Works on desktop and in browsers.
+text = "Host or join a lobby.
+Share its name with friends.
 
 
 Lobby name:"
@@ -324,6 +324,9 @@ anchor_bottom = 0.0
 offset_right = 273.0
 offset_bottom = 457.0
 size_flags_horizontal = 3
+
+[node name="TextureRect" parent="credits/ScrollContainer/Credits" index="0"]
+visible = false
 
 [node name="VersionLabel" type="Label" parent="."]
 anchor_left = 1.0
@@ -419,3 +422,5 @@ visible = false
 [connection signal="pressed" from="message/Button" to="." method="_on_back_pressed"]
 [connection signal="mouse_entered" from="back" to="." method="_on_mouse_entered"]
 [connection signal="pressed" from="back" to="." method="_on_back_pressed"]
+
+[editable path="credits/ScrollContainer/Credits"]
