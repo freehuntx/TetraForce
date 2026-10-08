@@ -17,6 +17,7 @@ func _ready():
 	camera = preload("res://entities/player/camera.tscn").instantiate()
 	add_child(camera)
 	network.map_peers = []
+	network.connect("refresh_player_request", Callable(self, "refresh_player"))
 	
 	if global.next_entrance == "":
 		screenfx.play("fadewhite")
@@ -29,13 +30,12 @@ func _ready():
 	
 	add_new_player(network.pid)
 	for player in network.player_list.keys():
-		if network.player_list[player] == name:
+		if player != network.pid and network.player_list[player] == name:
 			add_new_player(player)
 	# force the server to acknowledge this player's presence
 	network.send_current_map() # starts player list updates
 	screenfx.play("fadein")
 	player_entered.connect(_on_player_entered)
-	network.connect("refresh_player_request", Callable(self, "refresh_player"))
 
 func _process(delta): # can be on screen change instead of process
 	if !network.is_map_host():
@@ -68,6 +68,9 @@ func _process(delta): # can be on screen change instead of process
 				entity.position = entity.home_position
 
 func add_new_player(id):
+	if has_node(str(id)):
+		refresh_player(id)
+		return
 	var new_player = preload("res://entities/player/player.tscn").instantiate()
 	new_player.name = str(id)
 	new_player.set_multiplayer_authority(id, true)
@@ -76,17 +79,20 @@ func add_new_player(id):
 	new_player.camera = camera
 	new_player.initialize()
 
-	if id == network.pid:
-		new_player.sprite.texture = load(global.options.player_data.skin)
-		new_player.nametag.text = global.options.player_data.name
-	else:
-		refresh_player(id)
+	refresh_player(id)
 
 func refresh_player(id):
 	var player = get_node_or_null(str(id))
-	if player and player is Player:
-		player.sprite.texture = load(network.player_data.get(id).skin)
-		player.nametag.text = global.filter_value(network.player_data.get(id).name)
+	if player == null or !(player is Player) or player.is_queued_for_deletion():
+		return
+	var profile = network.player_data.get(id)
+	# Only the local avatar may use local options while awaiting its first
+	# authoritative snapshot. Never apply them to somebody else's puppet.
+	if profile == null and id == network.pid:
+		profile = global.options.player_data
+	if profile is Dictionary:
+		player.sprite.texture = load(profile.skin)
+		player.nametag.text = global.filter_value(profile.name)
 
 func remove_player(id):
 	if has_node(str(id)):
@@ -110,6 +116,10 @@ func update_puppets():
 	for id in network.map_peers:
 		if !player_names.has(id): # if there's fewer names than peers
 			add_new_player(id) # add a new node for that name
+	# A departure changes the roster without recreating surviving nodes.
+	# Re-apply each survivor's own authoritative profile by its numeric ID.
+	for id in network.current_players:
+		refresh_player(id)
 
 func _on_player_entered(id):
 	return
@@ -140,7 +150,7 @@ func create_collectable(path, pos):
 		call_deferred("add_child", new_collectable)
 		new_collectable.position = pos
 		new_collectable.item_position.append(pos)
-		network.add_to_state("collectables", new_collectable)
+		network.add_to_state("collectables", str(pos))
 		
 func update_spiritpearls():
 	if global.pearl.size() >= 4:
@@ -150,7 +160,5 @@ func update_spiritpearls():
 		global.pearl.clear()
 		network.peer_call(self, "update_spiritpearls")
 	global.emit_signal("debug_update")
-
-
 
 

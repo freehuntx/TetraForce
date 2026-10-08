@@ -53,4 +53,9 @@ func exit_save():
 
 func on_quit_game():
 	on_any_button_pressed()
-	get_tree().quit(0)
+	if main:
+		main.quit_program()
+	else:
+		sfx.stop_all()
+		await get_tree().create_timer(0.2).timeout
+		get_tree().quit(0)

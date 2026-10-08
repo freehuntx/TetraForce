@@ -26,7 +26,7 @@ func _ready():
 
 func create_server_button(server_label : String, server_name : String) -> Node:
 	var button = Button.new()
-	button.connect("button_down", Callable(main, "join_aws").bind(server_name))
+	button.connect("button_down", Callable(main, "join_lobby").bind(server_name))
 	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	button.text = server_label
 	return button

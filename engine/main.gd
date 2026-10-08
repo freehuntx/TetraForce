@@ -3,12 +3,15 @@ extends Control
 
 var default_map = "res://maps/shrine.tmx"
 var default_entrance = "player_start"
-@export var default_port = 7777
-var server_api = preload("res://engine/server_api.gd").new()
+var relay_session: Node
+var default_lobby = "tetraforce"
+var _hosting_dedicated = false
+var _hosting_empty_timeout = 0
+var _quitting = false
+var _ending = false
 
 @onready var address_line = $multiplayer/Direct/address
 @onready var lobby_line = $multiplayer/Automatic/lobby
-#onready var endpoint_button = $options/scroll/vbox/endpoint JosephB Needs to confirm deletion
 @onready var singleplayer_focus = $top/VBoxContainer/singleplayer
 @onready var loading_screen = $loading_screen_layer/loading_screen
 
@@ -21,25 +24,15 @@ func _ready():
 	multiplayer.connected_to_server.connect(_client_connect_ok)
 	multiplayer.connection_failed.connect(_client_connect_fail)
 	multiplayer.server_disconnected.connect(_client_disconnect)
-	network.connect("end_aws_task", Callable(self, "end_aws_task"))
 	
 	get_tree().set_auto_accept_quit(false)
-	
-	add_child(server_api)
-	
-	#endpoint_button.add_item("Production")
-	#endpoint_button.add_item("Stage")
-	_on_endpoint_item_selected(0)
-	
-	if OS.has_feature("web"):
-		$multiplayer/Direct/host.disabled = true
 	
 	#For server commandline arguments. Searches for ones passed, then tries to set ones that exist.
 	#Puts arguments passed as "--example=value" in a dictionary.
 	var arguments = {}
 	for argument in OS.get_cmdline_user_args():
 		if argument.find("=") > -1:
-			var key_value = argument.split("=")
+			var key_value = argument.split("=", true, 1)
 			arguments[key_value[0].lstrip("--")] = key_value[1]
 	
 	if "map" in arguments:
@@ -51,18 +44,19 @@ func _ready():
 		start_singleplayer()
 		
 	
-	#this overrides the default port of 7777
-	if("port" in arguments):
-		default_port = int(arguments["port"])
-		get_node("panel/address").set_text("127.0.0.1:" + arguments["port"])
+	if "lobby" in arguments:
+		default_lobby = arguments["lobby"]
+		address_line.text = default_lobby
+	if "broker" in arguments:
+		ProjectSettings.set_setting("freelay/broker_urls", PackedStringArray([arguments["broker"]]))
 	
 	if OS.has_feature("dedicated_server") || arguments.get("dedicatedserver") == "true":
 		var empty_timeout = get_empty_server_timeout(arguments)
 		set_dedicated_server(empty_timeout)
 	
-	#print(yield(server_api.get_servers(), "completed"))
-	
 	await get_tree().create_timer(0.5).timeout
+	if _quitting:
+		return
 	sfx.set_music("shrine", "quiet")
 	singleplayer_focus.grab_focus()
 
@@ -114,136 +108,137 @@ func start_game(dedicated = false, empty_timeout = 0, map = null, entrance = nul
 
 func start_singleplayer():
 	# Local play needs server authority, but must not open a listening socket.
+	if is_instance_valid(relay_session):
+		await relay_session.prepare_leave()
+		network.complete(false)
+	close_relay_session()
 	network.reset_to_offline_peer()
 	network.pid = MultiplayerPeer.TARGET_PEER_SERVER
 	network.dedicated = false
 	network.empty_timeout = 0
 	start_game()
 
-func host_server(dedicated = false, empty_timeout = 0, port = default_port, max_players = 16):
-	if OS.has_feature("web"):
-		open_error_message("Hosting multiplayer is not supported in the browser. Use a desktop host instead.")
+func host_server(dedicated = false, empty_timeout = 0, lobby_name = default_lobby, max_players = 16):
+	_hosting_dedicated = dedicated
+	_hosting_empty_timeout = empty_timeout
+	connect_lobby(lobby_name, "host", max_players)
+
+func join_lobby(lobby_name):
+	_hosting_dedicated = false
+	_hosting_empty_timeout = 0
+	connect_lobby(lobby_name, "auto")
+
+func connect_lobby(lobby_name, mode = "auto", max_players = 16):
+	if is_instance_valid(relay_session):
+		await relay_session.prepare_leave()
+	loading_screen.stop_loading()
+	network.complete(false)
+	close_relay_session()
+	network.reset_to_offline_peer()
+	network.dedicated = false
+	network.empty_timeout = 0
+	loading_screen.with_load("Connecting to '%s' via Freelay" % lobby_name, 25)
+	relay_session = preload("res://engine/freelay_session.gd").new()
+	add_child(relay_session)
+	relay_session.session_ready.connect(_relay_ready.bind(relay_session))
+	relay_session.failed.connect(_relay_failed.bind(relay_session))
+	relay_session.disconnected.connect(_relay_failed.bind(relay_session))
+	relay_session.migration_started.connect(_migration_started)
+	relay_session.migration_peer_ready.connect(_migration_peer_ready)
+	relay_session.migration_state_ready.connect(_migration_state_ready)
+	relay_session.migration_finished.connect(_migration_finished)
+	relay_session.open(lobby_name, mode, max_players)
+
+func _relay_ready(peer: FreelayMultiplayerPeer, session: Node):
+	if session != relay_session:
 		return
+	multiplayer.multiplayer_peer = peer
+	if peer.is_host():
+		start_game(_hosting_dedicated, _hosting_empty_timeout)
+	# Clients start when SceneMultiplayer admits peer 1 on its next poll.
 
-	var ws = WebSocketMultiplayerPeer.new()
-	var err = ws.create_server(port)
-	if err != OK:
-		open_error_message("Failed to host on port %s: %s" % [port, error_string(err)])
+func _relay_failed(reason: String, session: Node):
+	if session != relay_session:
 		return
-	multiplayer.multiplayer_peer = ws
-	
-	start_game(dedicated, empty_timeout)
+	loading_screen.stop_loading()
+	end_game()
+	open_error_message(reason)
 
-func join_server(ip, port):
-	loading_screen.with_load("Connecting to host", 75)
-	
-	if !ip.is_valid_ip_address():
-		print("Invalid IP")
-		open_error_message("Invalid IP")
-		loading_screen.stop_loading()
-		return
-	
-	var ws = WebSocketMultiplayerPeer.new()
-	var url = "ws://%s:%s" % [ip, port]
-	var err = ws.create_client(url)
-	if err != OK:
-		_client_connect_fail()
-		return
-	multiplayer.multiplayer_peer = ws
-
-func join_aws(lobby_name):
-
-	# Attempt to join existing server
-	if not await attempt_to_join_aws_sever(lobby_name):
-		
-		# Request new server
-		loading_screen.with_load("Creating '%s'" % lobby_name, 25)
-		var new_lobby = await server_api.create_server(lobby_name)
-		print("API Response: %s" % new_lobby)
-		
-		# Handle response based on result
-		if new_lobby.success:
-			
-			# Attempt to get server info 15 times
-			for i in range(15):
-				await get_tree().create_timer(8.0).timeout
-				if await attempt_to_join_aws_sever(lobby_name, true):
-					return
-
-			# Timeout if no sever info found
-			print("Server creation timeout!")
-			loading_screen.stop_loading()
-			open_error_message("Server creation timeout!")
-		else:
-			loading_screen.stop_loading()
-			open_error_message("Failed to create server: %s" % new_lobby.message)
-
-func attempt_to_join_aws_sever(lobby_name, hide_loading_message = false) -> bool:
-	if not hide_loading_message:
-		loading_screen.with_load("Connecting to '%s'" % lobby_name, 0)
-
-	var waitingOnServer = true
-
-	while waitingOnServer:
-		# Look up lobby
-		var lobby = await server_api.get_server(lobby_name)
-		print("API Response: %s" % lobby)
-		
-		# Return and act on result
-		if lobby.success == true:
-			if "status" in lobby.data:
-				if lobby.data.status == "RUNNING":
-					join_server(lobby.data.ip, lobby.data.port)
-					return true
-				elif lobby.data.status in ["PENDING", "PROVISIONING"]:
-					loading_screen.with_load("'%s' pending" % lobby_name, 50)
-					await get_tree().create_timer(5.0).timeout
-				else:
-					print("%s has status: %s", [lobby_name, lobby.data.status])
-					waitingOnServer = false
-			else:
-				print("%s missing status!" % lobby_name)
-				waitingOnServer = false
-		else:
-			waitingOnServer = false
-
-	return false
-
-func end_aws_task(task_name):
-	print(await server_api.stop_server(task_name))
+func close_relay_session():
+	if is_instance_valid(relay_session):
+		relay_session.close()
+	relay_session = null
 
 func _client_connect_ok():
+	if network.migrating:
+		return
 	loading_screen.stop_loading(100)
 	start_game()
 
 func _client_connect_fail():
+	if network.migrating:
+		return
 	print("Failed to connect!")
 	loading_screen.stop_loading()
 	end_game()
 
 func _client_disconnect(code = OK, reason = "Server disconnected"):
+	if network.migrating:
+		return
 	print("Disconnected from server: %s, %s" % [code, reason])
 	network.complete()
+	close_relay_session()
 	show()
 	if code != OK:
 		open_error_message(reason)
 
 func end_game():
-	network.complete()
+	if _ending:
+		return
+	_ending = true
+	if is_instance_valid(relay_session):
+		await relay_session.prepare_leave()
+	loading_screen.stop_loading()
+	network.complete(false)
+	close_relay_session()
+	network.reset_to_offline_peer()
 	show()
 	screenfx.play("default")
+	_ending = false
 
 func quit_program():
+	if _quitting:
+		return
+	_quitting = true
+	if is_instance_valid(relay_session):
+		await relay_session.prepare_leave()
 	network.complete(false)
-	await get_tree().process_frame
+	close_relay_session()
+	# Audio playback is released on the audio thread. Stop it before the
+	# shutdown wait, rather than only in the autoload's late _exit_tree().
+	sfx.stop_all()
+	await get_tree().create_timer(RelayPeerConnection.RTC_LEAVE_GRACE_SECONDS + 0.1).timeout
 	get_tree().quit()
+
+func _migration_started():
+	network.begin_migration()
+	loading_screen.with_load("Host left — transferring the session", 25)
+
+func _migration_peer_ready(peer: FreelayMultiplayerPeer):
+	# Replacing the peer clears SceneMultiplayer's old path/relay caches.
+	multiplayer.multiplayer_peer = peer
+
+func _migration_state_ready(snapshot: Dictionary, remap: Dictionary):
+	if is_instance_valid(relay_session):
+		network.restore_migration(snapshot, remap, relay_session.peer)
+
+func _migration_finished():
+	loading_screen.stop_loading(100)
+	network.finish_migration()
 
 func set_dedicated_server(empty_timeout):
 	hide_menus()
 	host_server(true, empty_timeout)
-
-func get_ipport():
-	return address_line.text.rsplit(":")
 
 func hide_menus():
 	for node in get_tree().get_nodes_in_group("menu"):
@@ -254,14 +249,14 @@ func _notification(n):
 		quit_program()
 
 func _on_connect_pressed():
-	#print(yield(server_api.stop_server(lobby_line.text), "completed"))
-	join_aws(lobby_line.text)
+	join_lobby(lobby_line.text)
 
 func _on_host_pressed():
-	host_server(false)
+	host_server(false, 0, address_line.text)
 
 func _on_join_pressed():
-	join_server(get_ipport()[0], int(get_ipport()[1]))
+	_hosting_dedicated = false
+	connect_lobby(address_line.text, "join")
 
 func _on_quit_pressed():
 	quit_program()
@@ -299,6 +294,9 @@ func _on_options_pressed():
 	$back.grab_focus()
 
 func _on_back_pressed():
+	if !is_instance_valid(network.current_map):
+		close_relay_session()
+		loading_screen.stop_loading()
 	if $options.is_visible_in_tree():
 		global.save_options()
 	hide_menus()
@@ -310,13 +308,6 @@ func _on_returned_pressed():
 
 func _on_save_pressed():
 	global.save_options()
-
-func _on_endpoint_item_selected(index):
-	match index:
-		0:
-			server_api.api_endpoint = "api.online.tetraforce.io"
-		1:
-			server_api.api_endpoint = "stage.api.online.tetraforce.io"
 
 func _on_mouse_entered():
 	sfx.play("item_select")

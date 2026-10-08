@@ -39,6 +39,15 @@ window/stretch/mode="canvas_items"
 
 enabled=PackedStringArray("res://addons/YATI/plugin.cfg")
 
+[freelay]
+
+app_id="tetraforce"
+broker_urls=PackedStringArray("wss://broker.hivemq.com:8884/mqtt")
+webrtc_enabled=true
+ice_servers=[{
+"urls": ["stun:stun.l.google.com:19302"]
+}]
+
 [gui]
 
 theme/custom="res://ui/theme/theme.tres"

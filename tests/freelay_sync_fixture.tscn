@@ -1,0 +1,11 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://tests/freelay_sync_fixture.gd" id="1"]
+[ext_resource type="PackedScene" path="res://engine/network_object.tscn" id="2"]
+
+[node name="FreelayFixture" type="Node"]
+script = ExtResource("1")
+
+[node name="NetworkObject" parent="." instance=ExtResource("2")]
+enter_properties = {"value": 0}
+update_properties = {"value": 0}

@@ -8,11 +8,7 @@ func _ready():
 	var main = load("res://engine/main.tscn").instantiate()
 	add_child(main)
 	await get_tree().create_timer(0.6).timeout
-	check(main.has_node("multiplayer/Direct/host"), "Web hosting control must resolve to the scene's actual button")
-	if OS.has_feature("web"):
-		check(main.get_node("multiplayer/Direct/host").disabled, "Browser builds must disable multiplayer hosting")
-		main.host_server()
-		check(main.get_node("message").visible, "Browser hosting must explain why it is unavailable")
+	check(!main.get_node("multiplayer/Direct/host").disabled, "Freelay hosting must be available on desktop and web")
 
 	main.get_node("top/VBoxContainer/singleplayer").pressed.emit()
 	await get_tree().create_timer(1.2).timeout

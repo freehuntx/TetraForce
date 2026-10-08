@@ -180,7 +180,7 @@ __meta__ = {
 offset_right = 199.0
 offset_bottom = 21.7537
 size_flags_horizontal = 3
-text = "#0 Public Server"
+text = "#0 Public Lobby"
 alignment = 0
 
 [node name="Automatic" type="Control" parent="multiplayer"]
@@ -197,6 +197,7 @@ offset_left = 23.0042
 offset_top = 68.0042
 offset_right = 183.004
 offset_bottom = 100.411
+placeholder_text = "Shared lobby name"
 __meta__ = {
 "_edit_use_anchors_": false
 }
@@ -214,7 +215,7 @@ __meta__ = {
 [node name="Label" type="Label" parent="multiplayer/Automatic"]
 offset_right = 210.0
 offset_bottom = 66.0
-text = "Enter any lobby name below to create a new server hosted by us. Enter the same lobby name as someone else to join their server."
+text = "Enter the same lobby name as your friends. Freelay joins an existing game or selects a player to host. No port forwarding needed."
 horizontal_alignment = 1
 autowrap_mode = 3
 __meta__ = {
@@ -235,11 +236,12 @@ size_flags_vertical = 2
 [node name="Label" type="Label" parent="multiplayer/Direct"]
 offset_right = 199.0
 offset_bottom = 146.0
-text = "Host a server on this machine by pressing the button below.
-Play on LAN with your local IP or online by port forwarding 7777.
+text = "Host or join a Freelay lobby.
+Share the lobby name with friends.
+Works on desktop and in browsers.
 
 
-Connect to a server with IP:Port"
+Lobby name:"
 horizontal_alignment = 1
 autowrap_mode = 3
 __meta__ = {
@@ -253,7 +255,7 @@ offset_right = 136.0
 offset_bottom = 146.407
 size_flags_horizontal = 2
 size_flags_vertical = 2
-text = "127.0.0.1:7777"
+text = "tetraforce"
 __meta__ = {
 "_edit_use_anchors_": false
 }
