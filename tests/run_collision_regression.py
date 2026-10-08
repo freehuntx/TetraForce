@@ -20,7 +20,9 @@ def main():
         "--path",
         str(root),
     ]
-    command += ["--rendering-method", "gl_compatibility"] if args.rendering else ["--headless"]
+    # Rendered CI runs need a display, but have no audio device. Select Dummy
+    # explicitly to avoid audio initialization errors before the checks run.
+    command += ["--rendering-method", "gl_compatibility", "--audio-driver", "Dummy"] if args.rendering else ["--headless"]
     suites = ("rendering_regression",) if args.rendering else (
         "collision_regression", "migration_regression", "rendering_regression",
     )
